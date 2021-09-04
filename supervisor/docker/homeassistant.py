@@ -48,7 +48,11 @@ class DockerHomeAssistant(DockerInterface):
     @property
     def ip_address(self) -> IPv4Address:
         """Return IP address of this container."""
-        return self.sys_docker.network.gateway
+        try:
+            return  self._meta["NetworkSettings"]["Networks"]["hassio"]["IPAddress"]
+        except (KeyError, TypeError, ValueError):
+            return self.sys_docker.network.gateway
+
 
     @property
     def cgroups_rules(self) -> List[str]:

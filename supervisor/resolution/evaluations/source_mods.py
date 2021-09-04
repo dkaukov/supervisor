@@ -38,6 +38,8 @@ class EvaluateSourceMods(EvaluateBase):
 
     async def evaluate(self) -> None:
         """Run evaluation."""
+        return False
+        
         if not self.sys_security.content_trust:
             _LOGGER.warning("Disabled content-trust, skipping evaluation")
             return

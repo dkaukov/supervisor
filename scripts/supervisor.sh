@@ -29,7 +29,7 @@ function cleanup_docker() {
 
 
 function run_supervisor() {
-    mkdir -p /workspaces/test_supervisor
+    mkdir -p $HOME/workspaces/test_supervisor
 
     echo "Start Supervisor"
     docker run --rm --privileged \
@@ -40,10 +40,10 @@ function run_supervisor() {
         -v /run/docker.sock:/run/docker.sock:rw \
         -v /run/dbus:/run/dbus:ro \
         -v /run/udev:/run/udev:ro \
-        -v "/workspaces/test_supervisor":/data:rw \
+        -v "$HOME/workspaces/test_supervisor":/data:rw \
         -v /etc/machine-id:/etc/machine-id:ro \
-        -v /workspaces/supervisor:/usr/src/supervisor \
-        -e SUPERVISOR_SHARE="/workspaces/test_supervisor" \
+        -v  $HOME/workspaces/supervisor:/usr/src/supervisor \
+        -e SUPERVISOR_SHARE="$HOME/workspaces/test_supervisor" \
         -e SUPERVISOR_NAME=hassio_supervisor \
         -e SUPERVISOR_DEV=1 \
         -e SUPERVISOR_MACHINE="qemux86-64" \
