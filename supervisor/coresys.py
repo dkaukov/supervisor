@@ -2,41 +2,45 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
 import os
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Optional, TypeVar
 
 import aiohttp
 import sentry_sdk
 
 from .config import CoreConfig
-from .const import ENV_SUPERVISOR_DEV
+from .const import ENV_SUPERVISOR_DEV, SERVER_SOFTWARE
 from .docker import DockerAPI
+from .utils.dt import UTC, get_time_zone
 
 if TYPE_CHECKING:
     from .addons import AddonManager
     from .api import RestAPI
     from .arch import CpuArch
     from .auth import Auth
+    from .backups.manager import BackupManager
     from .core import Core
-    from .dbus import DBusManager
+    from .dbus.manager import DBusManager
     from .discovery import Discovery
     from .hardware.module import HardwareManager
     from .hassos import HassOS
     from .homeassistant.module import HomeAssistant
-    from .host import HostManager
+    from .host.manager import HostManager
     from .ingress import Ingress
     from .jobs import JobManager
     from .misc.scheduler import Scheduler
     from .misc.tasks import Tasks
-    from .plugins import PluginManager
+    from .plugins.manager import PluginManager
     from .resolution.module import ResolutionManager
+    from .security import Security
     from .services import ServiceManager
-    from .snapshots import SnapshotManager
     from .store import StoreManager
     from .supervisor import Supervisor
     from .updater import Updater
-    from .security import Security
+    from .bus import Bus
 
 
 T = TypeVar("T")
@@ -70,7 +74,7 @@ class CoreSys:
         self._addons: Optional[AddonManager] = None
         self._api: Optional[RestAPI] = None
         self._updater: Optional[Updater] = None
-        self._snapshots: Optional[SnapshotManager] = None
+        self._backups: Optional[BackupManager] = None
         self._tasks: Optional[Tasks] = None
         self._host: Optional[HostManager] = None
         self._ingress: Optional[Ingress] = None
@@ -85,6 +89,12 @@ class CoreSys:
         self._resolution: Optional[ResolutionManager] = None
         self._jobs: Optional[JobManager] = None
         self._security: Optional[Security] = None
+        self._bus: Optional[Bus] = None
+
+        # Set default header for aiohttp
+        self._websession._default_headers = MappingProxyType(
+            {aiohttp.hdrs.USER_AGENT: SERVER_SOFTWARE}
+        )
 
     @property
     def dev(self) -> bool:
@@ -275,18 +285,18 @@ class CoreSys:
         self._store = value
 
     @property
-    def snapshots(self) -> SnapshotManager:
-        """Return SnapshotManager object."""
-        if self._snapshots is None:
-            raise RuntimeError("SnapshotManager not set!")
-        return self._snapshots
+    def backups(self) -> BackupManager:
+        """Return BackupManager object."""
+        if self._backups is None:
+            raise RuntimeError("BackupManager not set!")
+        return self._backups
 
-    @snapshots.setter
-    def snapshots(self, value: SnapshotManager) -> None:
-        """Set a SnapshotManager object."""
-        if self._snapshots:
-            raise RuntimeError("SnapshotsManager already set!")
-        self._snapshots = value
+    @backups.setter
+    def backups(self, value: BackupManager) -> None:
+        """Set a BackupManager object."""
+        if self._backups:
+            raise RuntimeError("BackupsManager already set!")
+        self._backups = value
 
     @property
     def tasks(self) -> Tasks:
@@ -343,6 +353,20 @@ class CoreSys:
         if self._dbus:
             raise RuntimeError("DBusManager already set!")
         self._dbus = value
+
+    @property
+    def bus(self) -> Bus:
+        """Return Bus object."""
+        if self._bus is None:
+            raise RuntimeError("Bus not set!")
+        return self._bus
+
+    @bus.setter
+    def bus(self, value: Bus) -> None:
+        """Set a Bus object."""
+        if self._bus:
+            raise RuntimeError("Bus already set!")
+        self._bus = value
 
     @property
     def host(self) -> HostManager:
@@ -466,6 +490,24 @@ class CoreSys:
             raise RuntimeError("Machine-ID type already set!")
         self._machine_id = value
 
+    def now(self) -> datetime:
+        """Return now in local timezone."""
+        return datetime.now(get_time_zone(self.timezone) or UTC)
+
+    def run_in_executor(
+        self, funct: Callable[..., T], *args: Any
+    ) -> Coroutine[Any, Any, T]:
+        """Add an job to the executor pool."""
+        return self.loop.run_in_executor(None, funct, *args)
+
+    def create_task(self, coroutine: Coroutine) -> asyncio.Task:
+        """Create an async task."""
+        return self.loop.create_task(coroutine)
+
+    def capture_exception(self, err: Exception) -> None:
+        """Capture a exception."""
+        sentry_sdk.capture_exception(err)
+
 
 class CoreSysAttributes:
     """Inherit basic CoreSysAttributes."""
@@ -514,8 +556,13 @@ class CoreSysAttributes:
 
     @property
     def sys_core(self) -> Core:
-        """Return core object."""
+        """Return Core object."""
         return self.coresys.core
+
+    @property
+    def sys_bus(self) -> Bus:
+        """Return Bus object."""
+        return self.coresys.bus
 
     @property
     def sys_plugins(self) -> PluginManager:
@@ -563,9 +610,9 @@ class CoreSysAttributes:
         return self.coresys.store
 
     @property
-    def sys_snapshots(self) -> SnapshotManager:
-        """Return SnapshotManager object."""
-        return self.coresys.snapshots
+    def sys_backups(self) -> BackupManager:
+        """Return BackupManager object."""
+        return self.coresys.backups
 
     @property
     def sys_tasks(self) -> Tasks:
@@ -622,16 +669,20 @@ class CoreSysAttributes:
         """Return Job manager object."""
         return self.coresys.jobs
 
+    def now(self) -> datetime:
+        """Return now in local timezone."""
+        return self.coresys.now()
+
     def sys_run_in_executor(
         self, funct: Callable[..., T], *args: Any
     ) -> Coroutine[Any, Any, T]:
         """Add an job to the executor pool."""
-        return self.sys_loop.run_in_executor(None, funct, *args)
+        return self.coresys.run_in_executor(funct, *args)
 
     def sys_create_task(self, coroutine: Coroutine) -> asyncio.Task:
         """Create an async task."""
-        return self.sys_loop.create_task(coroutine)
+        return self.coresys.create_task(coroutine)
 
     def sys_capture_exception(self, err: Exception) -> None:
         """Capture a exception."""
-        sentry_sdk.capture_exception(err)
+        self.coresys.capture_exception(err)

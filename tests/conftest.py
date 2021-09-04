@@ -124,9 +124,9 @@ async def network_manager(dbus) -> NetworkManager:
 
 
 @pytest.fixture
-async def coresys(loop, docker, network_manager, aiohttp_client) -> CoreSys:
+async def coresys(loop, docker, network_manager, aiohttp_client, run_dir) -> CoreSys:
     """Create a CoreSys Mock."""
-    with patch("supervisor.bootstrap.initialize_system_data"), patch(
+    with patch("supervisor.bootstrap.initialize_system"), patch(
         "supervisor.bootstrap.setup_diagnostics"
     ):
         coresys_obj = await initialize_coresys()
